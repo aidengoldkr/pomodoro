@@ -9,7 +9,7 @@
 ## 🧠 소개
 
 Pomodoro Technique(포모도로 기법)은  
-작업 시간을 **단위로 나눠 집중**하고 **짧은 휴식**을 반복하면서 생산성을 높이는 방법입니다. :contentReference[oaicite:1]{index=1}
+작업 시간을 **단위로 나눠 집중**하고 **짧은 휴식**을 반복하면서 생산성을 높이는 방법입니다.
 
 이 앱은 그 방식에 맞춰:
 
@@ -33,9 +33,9 @@ Pomodoro Technique(포모도로 기법)은
 
 ## 🧩 기술 스택
 
--Next 14
--React 18
--Vercel
+- Next 14
+- React 18
+- Vercel
 
 ---
 
