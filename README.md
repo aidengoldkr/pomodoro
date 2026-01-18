@@ -3,6 +3,7 @@
 **포모도로 타이머 웹 앱**  
 마땅한 타이머가 없어서 직접 만들었습니다.  
 📍 라이브 데모: https://pomodoro.aidengoldkr.dev/
+Made by Aidengoldkr with CODEX
 
 ---
 
