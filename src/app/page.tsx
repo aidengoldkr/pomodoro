@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { IoIosSettings } from "react-icons/io";
+import { BiFullscreen } from "react-icons/bi";
+import { CgDarkMode } from "react-icons/cg";
 
 type Mode = "focus" | "short" | "long";
 type ThemePref = "light" | "dark";
 type HistoryMap = Record<string, number>;
+type NotificationState = NotificationPermission | "unsupported";
 
 const DEFAULT_SETTINGS = {
   focusMinutes: 25,
@@ -44,9 +47,14 @@ export default function Home() {
   const [themePref, setThemePref] = useState<ThemePref>("dark");
   const [showSettings, setShowSettings] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationState>("default");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const tickRef = useRef<number | null>(null);
   const modeSecondsRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const endTimeRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const todayKey = useMemo(() => formatDateKey(new Date()), []);
   const todayCount = history[todayKey] ?? 0;
@@ -89,6 +97,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+    const current = Notification.permission;
+    setNotificationPermission(current);
+    if (current === "default") {
+      Notification.requestPermission()
+        .then((permission) => {
+          setNotificationPermission(permission);
+        })
+        .catch(() => {
+          setNotificationPermission(Notification.permission);
+        });
+    }
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
   }, [settings]);
 
@@ -103,8 +129,13 @@ export default function Home() {
   useEffect(() => {
     if (isRunning) {
       tickRef.current = window.setInterval(() => {
-        setRemaining((prev) => Math.max(prev - 1, 0));
-      }, 1000);
+        if (!endTimeRef.current) return;
+        const secondsLeft = Math.max(
+          0,
+          Math.ceil((endTimeRef.current - Date.now()) / 1000)
+        );
+        setRemaining(secondsLeft);
+      }, 500);
     }
     return () => {
       if (tickRef.current) {
@@ -128,9 +159,62 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    handleFullscreenChange();
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    const wakeLock = (
+      navigator as Navigator & {
+        wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
+      }
+    ).wakeLock;
+    if (!wakeLock) return;
+    let isActive = true;
+
+    const requestWakeLock = async () => {
+      if (!isActive || !isRunning) return;
+      if (document.visibilityState !== "visible") return;
+      try {
+        wakeLockRef.current = await wakeLock.request("screen");
+      } catch {}
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void requestWakeLock();
+      }
+    };
+
+    if (isRunning) {
+      void requestWakeLock();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [isRunning]);
+
+  useEffect(() => {
     if (!isRunning) return;
     if (remaining === 0) {
       playSound();
+      showNotification(
+        "Pomodoro",
+        mode === "focus" ? "Time for a break." : "Back to focus."
+      );
       if (mode === "focus") {
         const nextFocusCount = totalFocusCount + 1;
         setHistory((prev) => {
@@ -140,16 +224,19 @@ export default function Home() {
         });
         const nextMode = nextFocusCount % 4 === 0 ? "long" : "short";
         setMode(nextMode);
-        setRemaining(
+        const nextSeconds =
           nextMode === "long"
             ? settings.longMinutes * 60
-            : settings.shortMinutes * 60
-        );
+            : settings.shortMinutes * 60;
+        setRemaining(nextSeconds);
+        endTimeRef.current = Date.now() + nextSeconds * 1000;
         return;
       }
 
       setMode("focus");
-      setRemaining(settings.focusMinutes * 60);
+      const nextSeconds = settings.focusMinutes * 60;
+      setRemaining(nextSeconds);
+      endTimeRef.current = Date.now() + nextSeconds * 1000;
     }
   }, [
     isRunning,
@@ -196,11 +283,13 @@ export default function Home() {
   const handleModeChange = (nextMode: Mode) => {
     setMode(nextMode);
     setIsRunning(false);
+    endTimeRef.current = null;
   };
 
   const handleReset = () => {
     setIsRunning(false);
     setRemaining(modeSeconds);
+    endTimeRef.current = null;
   };
 
   const toggleTheme = () => {
@@ -214,8 +303,94 @@ export default function Home() {
     audio.play().catch(() => {});
   };
 
+  const unlockAudio = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const wasMuted = audio.muted;
+    audio.muted = true;
+    audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = wasMuted;
+      })
+      .catch(() => {
+        audio.muted = wasMuted;
+      });
+  };
+
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+    } catch {
+      setNotificationPermission(Notification.permission);
+    }
+  };
+
+  const showNotification = (title: string, body: string) => {
+    if (notificationPermission !== "granted") return;
+    try {
+      new Notification(title, { body, tag: "pomodoro" });
+    } catch {}
+  };
+
+  const handleToggleRun = () => {
+    if (isRunning) {
+      if (endTimeRef.current) {
+        const secondsLeft = Math.max(
+          0,
+          Math.ceil((endTimeRef.current - Date.now()) / 1000)
+        );
+        setRemaining(secondsLeft);
+      }
+      endTimeRef.current = null;
+      setIsRunning(false);
+      return;
+    }
+    unlockAudio();
+    if (notificationPermission === "default") {
+      void requestNotificationPermission();
+    }
+    endTimeRef.current = Date.now() + remaining * 1000;
+    setIsRunning(true);
+  };
+
+  const handleToggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {}
+  };
+
   return (
     <div className={styles.page} data-theme={themePref} data-mode={mode}>
+      <div className={styles.topRightControls}>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={() => void handleToggleFullscreen()}
+          aria-label={isFullscreen ? "전체화면 해제" : "전체화면"}
+        >
+          <BiFullscreen className={styles.fullscreenIcon} />
+        </button>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={toggleTheme}
+          aria-label={themePref === "light" ? "다크 모드" : "라이트 모드"}
+        >
+          <CgDarkMode className={styles.themeIcon} />
+        </button>
+      </div>
       <div className={styles.bgLayer} data-variant="focus" />
       <div className={styles.bgLayer} data-variant="short" />
       <div className={styles.bgLayer} data-variant="long" />
@@ -253,11 +428,7 @@ export default function Home() {
             aria-label="기본시간 세팅"
             onClick={() => setShowSettings((prev) => !prev)}
           />
-          <div className={styles.themeControls}>
-            <button className={styles.secondaryButton} onClick={toggleTheme}>
-              {themePref === "light" ? "Dark" : "White"}
-            </button>
-          </div>
+          <div className={styles.themeControls} />
         </div>
 
         <div className={styles.timerDisplay}>{formatTime(remaining)}</div>
@@ -267,7 +438,7 @@ export default function Home() {
         <div className={styles.timerButtons}>
           <button
             className={styles.primaryButton}
-            onClick={() => setIsRunning((prev) => !prev)}
+            onClick={handleToggleRun}
           >
             {isRunning ? "일시정지" : "시작"}
           </button>

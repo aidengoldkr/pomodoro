@@ -146,6 +146,23 @@
   z-index: 2;
 }
 
+.topRightControls {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fullscreenIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--text);
+}
+
 .header {
   width: 100%;
   max-width: 1080px;
@@ -304,6 +321,12 @@
   background: var(--button-secondary-hover);
 }
 
+.themeIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--text);
+}
+
 .panels {
   width: 100%;
   max-width: 1080px;
@@ -421,6 +444,9 @@
 @media (max-width: 720px) {
   .page {
     padding: 48px 6vw 64px;
+    height: 100svh;
+    overflow: hidden;
+    align-content: center;
   }
 
   .header {
@@ -430,5 +456,18 @@
 
   .timerCard {
     padding: 24px;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .page {
+    padding: 24px 6vw 32px;
+    height: 100svh;
+    overflow: hidden;
+    align-content: center;
+  }
+
+  .timerCard {
+    padding: 20px;
   }
 }
