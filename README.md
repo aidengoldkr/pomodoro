@@ -18,6 +18,7 @@ Made by Aidengoldkr with CODEX
 - 기본 포모도로 타이머 기능 구현
 - 알파 릴리즈
 
+---
 
 ## 기술 스택
 
